@@ -5,6 +5,7 @@ import ufl
 import numpy as np
 import movement.solver_parameters as solver_parameters
 from movement.mover import PrimeMover
+from movement.monitor_smoother import laplacian_smoothing
 
 
 __all__ = [
@@ -74,6 +75,9 @@ class MongeAmpereMover_Base(PrimeMover):
         self.rtol = kwargs.pop("rtol", 1.0e-08)
         self.dtol = kwargs.pop("dtol", 2.0)
         self.fix_boundary_nodes = kwargs.pop("fix_boundary_nodes", False)
+        self.smooth_monitor_values = kwargs.pop("smooth_monitor_values", False)
+        self.monitor_smoother = kwargs.pop("monitor_smoother", "laplacian")
+        self.laplacian_smoother_num = kwargs.pop("laplacian_smoother_num", 40)
         super().__init__(mesh, monitor_function=monitor_function)
 
         # Create function spaces
@@ -365,6 +369,19 @@ class MongeAmpereMover_Relaxation(MongeAmpereMover_Base):
 
             # Update monitor function
             self.monitor.interpolate(self.monitor_function(self.mesh))
+
+            # Perform monitor function values smooth
+            if self.smooth_monitor_values:
+                if self.monitor_smoother == "laplacian":
+                    self.monitor = laplacian_smoothing(
+                        mesh=self.mesh,
+                        monitor_values=self.monitor,
+                        smooth_num=self.laplacian_smoother_num,
+                    )
+                else:
+                    raise NotImplementedError(
+                        f"Monitor smoother {self.monitor_smoother} not implemented."
+                    )
             firedrake.assemble(self.L_P0, tensor=self.volume)
             self.volume.interpolate(self.volume / self.original_volume)
             self.mesh.coordinates.assign(self.xi)
