@@ -11,14 +11,15 @@ __all__ = ["SpringMover_Lineal", "SpringMover_Torsional", "SpringMover"]
 
 def SpringMover(mesh, method="lineal", **kwargs):
     """
-    Movement of a ``mesh`` is determined by reinterpreting
-    it as a structure of stiff beams and solving an
-    associated discrete linear elasticity problem.
+    Movement of a ``mesh`` is determined by reinterpreting it as a structure of stiff
+    beams and solving an associated discrete linear elasticity problem.
 
-    See Farhat, Degand, Koobus and Lesoinne, "Torsional
-    springs for two-dimensional dynamic unstructured fluid
-    meshes" (1998), Computer methods in applied mechanics
-    and engineering, 163:231-245.
+    See Farhat, Degand, Koobus and Lesoinne, "Torsional springs for two-dimensional
+    dynamic unstructured fluid meshes" (1998), Computer methods in applied mechanics and
+    engineering, 163:231-245.
+
+    :arg mesh: the mesh to be moved
+    :kwarg method: flavour of spring-based method to use
     """
     if method == "lineal":
         return SpringMover_Lineal(mesh, **kwargs)
@@ -30,8 +31,7 @@ def SpringMover(mesh, method="lineal", **kwargs):
 
 class SpringMover_Base(PrimeMover):
     """
-    Base class for mesh movers based on spring
-    analogies.
+    Base class for mesh movers based on spring analogies.
     """
 
     def __init__(self, mesh, **kwargs):
@@ -45,11 +45,10 @@ class SpringMover_Base(PrimeMover):
         self.displacement = np.zeros(self.mesh.num_vertices())
 
     @property
-    @PETSc.Log.EventDecorator("SpringMover_Base.facet_areas")
+    @PETSc.Log.EventDecorator()
     def facet_areas(self):
         """
-        Compute the areas of all facets in the
-        mesh.
+        Compute the areas of all facets in the mesh.
 
         In 2D, this corresponds to edge lengths.
         """
@@ -69,11 +68,10 @@ class SpringMover_Base(PrimeMover):
         return self._facet_area
 
     @property
-    @PETSc.Log.EventDecorator("SpringMover_Base.tangents")
+    @PETSc.Log.EventDecorator()
     def tangents(self):
         """
-        Compute tangent vectors for all edges in
-        the mesh.
+        Compute tangent vectors for all edges in the mesh.
         """
         if not hasattr(self, "_tangents_solver"):
             test = firedrake.TestFunction(self.HDivTrace_vec)
@@ -95,12 +93,11 @@ class SpringMover_Base(PrimeMover):
         return self._tangents
 
     @property
-    @PETSc.Log.EventDecorator("SpringMover_Base.angles")
+    @PETSc.Log.EventDecorator()
     def angles(self):
         r"""
-        Compute the argument of each edge in the
-        mesh, i.e. its angle from the :math:`x`-axis
-        in the :math:`x-y` plane.
+        Compute the argument of each edge in the mesh, i.e. its angle from the
+        :math:`x`-axis in the :math:`x-y` plane.
         """
         t = self.tangents
         if not hasattr(self, "_angles_solver"):
@@ -129,7 +126,7 @@ class SpringMover_Base(PrimeMover):
         return self._angles
 
     @property
-    @PETSc.Log.EventDecorator("SpringMover_Base.stiffness_matrix")
+    @PETSc.Log.EventDecorator()
     def stiffness_matrix(self):
         angles = self.angles
         edge_lengths = self.facet_areas
@@ -168,11 +165,10 @@ class SpringMover_Base(PrimeMover):
                 K[2 * j + 1][2 * j + 1] += s * s / l
         return K
 
-    @PETSc.Log.EventDecorator("SpringMover_Lineal.apply_dirichlet_conditions")
+    @PETSc.Log.EventDecorator()
     def apply_dirichlet_conditions(self, tags):
         """
-        Enforce that nodes on certain tagged boundaries
-        do not move.
+        Enforce that nodes on certain tagged boundaries do not move.
 
         :arg tags: a list of boundary tags
         """
@@ -191,28 +187,23 @@ class SpringMover_Base(PrimeMover):
 
 class SpringMover_Lineal(SpringMover_Base):
     """
-    Movement of a ``mesh`` is determined by reinterpreting
-    it as a structure of stiff beams and solving an
-    associated discrete linear elasticity problem.
+    Movement of a ``mesh`` is determined by reinterpreting it as a structure of stiff
+    beams and solving an associated discrete linear elasticity problem.
 
-    We consider the 'lineal' case, as described in
-    Farhat, Degand, Koobus and Lesoinne, "Torsional
-    springs for two-dimensional dynamic unstructured fluid
-    meshes" (1998), Computer methods in applied mechanics
-    and engineering, 163:231-245.
+    We consider the 'lineal' case, as described in Farhat, Degand, Koobus and Lesoinne,
+    "Torsional springs for two-dimensional dynamic unstructured fluid meshes" (1998),
+    Computer methods in applied mechanics and engineering, 163:231-245.
     """
 
-    @PETSc.Log.EventDecorator("SpringMover_Lineal.move")
+    @PETSc.Log.EventDecorator()
     def move(self, time, update_forcings=None, fixed_boundaries=[]):
         """
-        Assemble and solve the lineal spring system and
-        update the coordinates.
+        Assemble and solve the lineal spring system and update the coordinates.
 
         :arg time: the current time
-        :kwarg update_forcings: function that updates
-            the forcing :attr:`f` at the current time
-        :kwarg fixed_boundaries: list of boundaries
-            where Dirichlet conditions are to be
+        :kwarg update_forcings: function that updates the forcing :attr:`f` at the
+            current time
+        :kwarg fixed_boundaries: list of boundaries where Dirichlet conditions are to be
             enforced
         """
         if update_forcings is not None:
@@ -237,15 +228,12 @@ class SpringMover_Lineal(SpringMover_Base):
 
 class SpringMover_Torsional(SpringMover_Lineal):
     """
-    Movement of a ``mesh`` is determined by reinterpreting
-    it as a structure of stiff beams and solving an
-    associated discrete linear elasticity problem.
+    Movement of a ``mesh`` is determined by reinterpreting it as a structure of stiff
+    beams and solving an associated discrete linear elasticity problem.
 
-    We consider the 'torsional' case, as described in
-    Farhat, Degand, Koobus and Lesoinne, "Torsional
-    springs for two-dimensional dynamic unstructured fluid
-    meshes" (1998), Computer methods in applied mechanics
-    and engineering, 163:231-245.
+    We consider the 'torsional' case, as described in Farhat, Degand, Koobus and
+    Lesoinne, "Torsional springs for two-dimensional dynamic unstructured fluid meshes"
+    (1998), Computer methods in applied mechanics and engineering, 163:231-245.
     """
 
     def __init__(self, *args, **kwargs):

@@ -32,7 +32,7 @@ def test_forced(method, num_timesteps, plot=False, test=True):
     V = mesh.coordinates.function_space()
     coords = mesh.coordinates.dat.data.copy()
     if method == "laplacian":
-        mover = LaplacianSmoother(mesh, timestep=dt)
+        mover = LaplacianSmoother(mesh, dt)
 
     def update_forcings(t):
         """
