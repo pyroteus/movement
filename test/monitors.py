@@ -9,6 +9,7 @@ def ring_monitor(mesh):
     alpha = Constant(10.0)  # amplitude
     beta = Constant(200.0)  # width
     gamma = Constant(0.15)  # radius
-    x, y = SpatialCoordinate(mesh)
-    r = (x - 0.5) ** 2 + (y - 0.5) ** 2
+    dim = mesh.geometric_dimension()
+    xyz = SpatialCoordinate(mesh) - as_vector([0.5]*dim)
+    r = dot(xyz, xyz)
     return Constant(1.0) + alpha / cosh(beta * (r - gamma)) ** 2

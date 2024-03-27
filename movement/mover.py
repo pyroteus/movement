@@ -15,10 +15,6 @@ class PrimeMover(object):
         self.mesh = firedrake.Mesh(mesh.coordinates.copy(deepcopy=True))
         self.monitor_function = monitor_function
         self.dim = self.mesh.topological_dimension()
-        if self.dim != 2:
-            raise NotImplementedError(
-                f"Dimension {self.dim} has not been considered yet"
-            )
         self.gdim = self.mesh.geometric_dimension()
         self.plex = self.mesh.topology_dm
         self.vertex_indices = self.plex.getDepthStratum(0)

@@ -15,6 +15,11 @@ __all__ = [
 ]
 
 
+def tangential(v, n):
+    """Return component of v perpendicular to n (assumed normalized)"""
+    return v - ufl.dot(v, n) * n
+
+
 def MongeAmpereMover(mesh, monitor_function, method="relaxation", **kwargs):
     r"""
         Movement of a `mesh` is determined by a `monitor_function`
@@ -185,17 +190,14 @@ class MongeAmpereMover_Base(PrimeMover):
 
             # Check for axis-aligned boundaries
             _n = [firedrake.assemble(abs(n[j]) * self.ds(i)) for j in range(self.dim)]
-            if np.allclose(_n, 0.0):
+            iszero = [np.allclose(ni, 0.0) for ni in _n]
+            nzero = sum(iszero)
+            if nzero == self.dim:
                 raise ValueError(f"Invalid normal vector {_n}")
-            else:
-                if self.dim != 2:
-                    raise NotImplementedError  # TODO
-                if np.isclose(_n[0], 0.0):
-                    bcs.append(firedrake.DirichletBC(self.P1_vec.sub(1), 0, i))
-                    continue
-                elif np.isclose(_n[1], 0.0):
-                    bcs.append(firedrake.DirichletBC(self.P1_vec.sub(0), 0, i))
-                    continue
+            elif nzero == self.dim-1:
+                idx = iszero.index(False)
+                bcs.append(firedrake.DirichletBC(self.P1_vec.sub(idx), 0, i))
+                continue
 
             # Enforce no mesh movement normal to boundaries
             a_bc = ufl.dot(v_cts, n) * ufl.dot(u_cts, n) * self.ds
@@ -203,9 +205,8 @@ class MongeAmpereMover_Base(PrimeMover):
             bcs.append(firedrake.EquationBC(a_bc == L_bc, self._grad_phi, i))
 
             # Allow tangential movement, but only up until the end of boundary segments
-            s = ufl.perp(n)
-            a_bc = ufl.dot(v_cts, s) * ufl.dot(u_cts, s) * self.ds
-            L_bc = ufl.dot(v_cts, s) * ufl.dot(ufl.grad(self.phi_old), s) * self.ds
+            a_bc = ufl.dot(tangential(v_cts, n), tangential(u_cts, n)) * self.ds
+            L_bc = ufl.dot(tangential(v_cts, n), tangential(ufl.grad(self.phi_old), n)) * self.ds
             edges = set(self.mesh.exterior_facets.unique_markers)
             if len(edges) == 0:
                 bbc = None  # Periodic case
@@ -325,15 +326,13 @@ class MongeAmpereMover_Relaxation(MongeAmpereMover_Base):
             return self._equidistributor
         assert hasattr(self, "phi")
         assert hasattr(self, "sigma")
-        if self.dim != 2:
-            raise NotImplementedError  # TODO
         n = ufl.FacetNormal(self.mesh)
         sigma = firedrake.TrialFunction(self.P1_ten)
         tau = firedrake.TestFunction(self.P1_ten)
         a = ufl.inner(tau, sigma) * self.dx
         L = (
             -ufl.dot(ufl.div(tau), ufl.grad(self.phi)) * self.dx
-            + (tau[0, 1] * n[1] * self.phi.dx(0) + tau[1, 0] * n[0] * self.phi.dx(1))
+            + ufl.dot(ufl.dot(tangential(ufl.grad(self.phi), n), tau), n)
             * self.ds
         )
         problem = firedrake.LinearVariationalProblem(a, L, self.sigma)
@@ -452,8 +451,6 @@ class MongeAmpereMover_QuasiNewton(MongeAmpereMover_Base):
         if hasattr(self, "_equidistributor"):
             return self._equidistributor
         assert hasattr(self, "phisigma")
-        if self.dim != 2:
-            raise NotImplementedError  # TODO
         n = ufl.FacetNormal(self.mesh)
         I = ufl.Identity(self.dim)
         phi, sigma = firedrake.split(self.phisigma)
@@ -461,7 +458,7 @@ class MongeAmpereMover_QuasiNewton(MongeAmpereMover_Base):
         F = (
             ufl.inner(tau, sigma) * self.dx
             + ufl.dot(ufl.div(tau), ufl.grad(phi)) * self.dx
-            - (tau[0, 1] * n[1] * phi.dx(0) + tau[1, 0] * n[0] * phi.dx(1)) * self.ds
+            - ufl.dot(ufl.dot(tangential(ufl.grad(phi), n), tau), n) * self.ds
             - psi * (self.monitor * ufl.det(I + sigma) - self.theta) * self.dx
         )
         phi, sigma = firedrake.TrialFunctions(self.V)
