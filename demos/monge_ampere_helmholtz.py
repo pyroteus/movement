@@ -96,21 +96,9 @@ print("L2-norm error on initial mesh:", sqrt(assemble(dot(error, error) * dx)))
 #    L2-norm error on initial mesh: 0.010233816824277465
 #
 # We will now try to use mesh movement to optimize the mesh to reduce
-# this numerical error. A good indicator for where resolution is required
-# is to look at the curvature of the solution which can be expressed
-# in terms of the norm of the Hessian. A monitor function
-# that targets high resolution in places of high curvature then looks like
-#
-# .. math::
-#
-#    m = 1 + \alpha \frac{H(u_h):H(u_h)}{\max_{{\bf x}\in\Omega} H(u_h):H(u_h)}
-#
-# where :math:`:` indicates the inner product, i.e. :math:`\sqrt{H:H}` is the Frobenius norm
-# of :math:`H`. We have normalized such that the minimum of the monitor function is one (where
-# the error is zero), and its maximum is :math:`1 + \alpha` (where the curvature is maximal). This
-# means we can select the ratio between the largest area and smallest area triangle in the
-# moved mesh as :math:`1+\alpha`.
-#
+# this numerical error. We use the same monitor function as
+# in the `previous Monge-Ampère demo <./monge_ampere_3d.py.html>`__
+# based on the norm of the Hessian of the solution.
 # In the following implementation we use the exact solution :math:`u_{\text{exact}}` which we
 # have as a symbolic UFL expression, and thus we can also obtain the Hessian symbolically as
 # :code:`grad(grad(u_exact))`. To compute its maximum norm however we do interpolate it
@@ -129,6 +117,8 @@ def monitor(mesh):
     return m
 
 
+# Plot the monitor function on the original mesh
+
 fig, axes = plt.subplots()
 m = Function(u_h, name="monitor")
 m.interpolate(monitor(mesh))
@@ -140,14 +130,6 @@ fig, axes = plt.subplots()
 # .. figure:: monge_ampere_helmholtz-monitor.jpg
 #    :figwidth: 60%
 #    :align: center
-#
-# As in the `previous Monge-Ampère demo <./monge_ampere1.py.html>`__, we use the
-# MongeAmpereMover to perform the mesh movement based on this monitor. We need
-# to provide the monitor as a callback function that takes the mesh as its
-# input just as we have defined it above. During the iterations of the mesh
-# movement process the monitor will then be re-evaluated in the (iteratively)
-# moved mesh nodes so that, as we improve the mesh, we can also more accurately
-# express the monitor function in the desired high-resolution areas.
 
 mover = MongeAmpereMover(mesh, monitor, method="quasi_newton")
 mover.move()

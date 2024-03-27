@@ -15,6 +15,11 @@ __all__ = [
 ]
 
 
+def tangential(v, n):
+    """Return component of v perpendicular to n (assumed normalized)"""
+    return v - ufl.dot(v, n) * n
+
+
 def MongeAmpereMover(mesh, monitor_function, method="relaxation", **kwargs):
     r"""
         Movement of a `mesh` is determined by a `monitor_function`
@@ -200,12 +205,8 @@ class MongeAmpereMover_Base(PrimeMover):
             bcs.append(firedrake.EquationBC(a_bc == L_bc, self._grad_phi, i))
 
             # Allow tangential movement, but only up until the end of boundary segments
-            def perp(v, n):
-                """Return component of v perpendicular to n (assumed normalized)"""
-                return v - ufl.dot(v, n) * n
-
-            a_bc = ufl.dot(perp(v_cts, n), perp(u_cts, n)) * self.ds
-            L_bc = ufl.dot(perp(v_cts, n), perp(ufl.grad(self.phi_old), n)) * self.ds
+            a_bc = ufl.dot(tangential(v_cts, n), tangential(u_cts, n)) * self.ds
+            L_bc = ufl.dot(tangential(v_cts, n), tangential(ufl.grad(self.phi_old), n)) * self.ds
             edges = set(self.mesh.exterior_facets.unique_markers)
             if len(edges) == 0:
                 bbc = None  # Periodic case
@@ -328,12 +329,10 @@ class MongeAmpereMover_Relaxation(MongeAmpereMover_Base):
         n = ufl.FacetNormal(self.mesh)
         sigma = firedrake.TrialFunction(self.P1_ten)
         tau = firedrake.TestFunction(self.P1_ten)
-        I = ufl.Identity(self.dim)
         a = ufl.inner(tau, sigma) * self.dx
         L = (
             -ufl.dot(ufl.div(tau), ufl.grad(self.phi)) * self.dx
-            +ufl.dot(n, ufl.dot(tau, ufl.dot(I - ufl.outer(n, n), ufl.grad(self.phi))))
-            #+ (tau[0, 1] * n[1] * self.phi.dx(0) + tau[1, 0] * n[0] * self.phi.dx(1))
+            + ufl.dot(ufl.dot(tangential(ufl.grad(self.phi), n), tau), n)
             * self.ds
         )
         problem = firedrake.LinearVariationalProblem(a, L, self.sigma)
@@ -459,8 +458,7 @@ class MongeAmpereMover_QuasiNewton(MongeAmpereMover_Base):
         F = (
             ufl.inner(tau, sigma) * self.dx
             + ufl.dot(ufl.div(tau), ufl.grad(phi)) * self.dx
-            - ufl.dot(n, ufl.dot(tau, ufl.dot(I - ufl.outer(n, n), ufl.grad(phi)))) * self.ds
-            #- (tau[0, 1] * n[1] * phi.dx(0) + tau[1, 0] * n[0] * phi.dx(1)) * self.ds
+            - ufl.dot(ufl.dot(tangential(ufl.grad(phi), n), tau), n) * self.ds
             - psi * (self.monitor * ufl.det(I + sigma) - self.theta) * self.dx
         )
         phi, sigma = firedrake.TrialFunctions(self.V)
