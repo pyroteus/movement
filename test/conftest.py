@@ -4,6 +4,10 @@ Global pytest configuration.
 **Disclaimer: some functions copied from firedrake/src/tests/conftest.py
 """
 
+import numpy as np
+
+np.random.seed(0)
+
 
 def pytest_configure(config):
     """

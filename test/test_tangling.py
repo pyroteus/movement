@@ -10,6 +10,12 @@ class TestTangling(unittest.TestCase):
     Unit tests for mesh tangling checking.
     """
 
+    def test_dim_notimplementederror(self):
+        with self.assertRaises(NotImplementedError) as cm:
+            MeshTanglingChecker(UnitIntervalMesh(1))
+        msg = "Tangling check only currently supported in 2D."
+        self.assertEqual(str(cm.exception), msg)
+
     def test_tangling_checker_error1(self):
         mesh = UnitSquareMesh(3, 3)
         checker = MeshTanglingChecker(mesh, raise_error=True)

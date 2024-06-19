@@ -1,5 +1,4 @@
 import abc
-from warnings import warn
 
 import firedrake
 import firedrake.exceptions as fexc
@@ -9,6 +8,7 @@ from firedrake.petsc import PETSc
 from pyadjoint import no_annotations
 
 import movement.solver_parameters as solver_parameters
+from movement.math import equation_of_line, equation_of_plane
 from movement.mover import PrimeMover
 
 __all__ = [
@@ -135,10 +135,16 @@ class MongeAmpereMover_Base(PrimeMover, metaclass=abc.ABCMeta):
         :type sigma_init: :class:`firedrake.function.Function`
         """
         if phi_init is not None and sigma_init is not None:
-            self.phi.project(phi_init)
-            self.sigma.project(sigma_init)
-            self.phi_old.project(phi_init)
-            self.sigma_old.project(sigma_init)
+            if self.dim == 1:
+                self.phi.interpolate(phi_init)
+                self.sigma.interpolate(sigma_init)
+                self.phi_old.interpolate(phi_init)
+                self.sigma_old.interpolate(sigma_init)
+            else:
+                self.phi.project(phi_init)
+                self.sigma.project(sigma_init)
+                self.phi_old.project(phi_init)
+                self.sigma_old.project(sigma_init)
         elif phi_init is not None or sigma_init is not None:
             raise ValueError("Need to initialise both phi *and* sigma.")
 
@@ -179,14 +185,77 @@ class MongeAmpereMover_Base(PrimeMover, metaclass=abc.ABCMeta):
         self.x.assign(self.xi + self.grad_phi)
         self.mesh.coordinates.assign(self.x)
 
+    def _l2_projector_bcs(self, boundary_tag):
+        r"""
+        Determine boundary conditions to apply for the :math:`L^2` projection step for
+        a given boundary segment.
+
+        Note that the boundary segment *must* be a straight line or plane.
+
+        :arg boundary_tag: tag for the boundary segment in consideration
+        :type boundary_tag: :class:`str`
+        :returns: tuple of boundary conditions
+        :rtype: :class:`tuple` of :class:`~.DirichletBC`\s
+        """
+        zero_bc = firedrake.DirichletBC(self.P1_vec, 0, boundary_tag)
+        if self.fix_boundary_nodes or self.dim == 1:
+            return (zero_bc,)
+        ds = self.ds(boundary_tag)
+
+        # Check for axis-aligned boundaries
+        n = ufl.FacetNormal(self.mesh)
+        iszero = [np.isclose(firedrake.assemble(abs(ni) * ds), 0.0) for ni in n]
+        nzero = sum(iszero)
+        assert nzero < self.dim
+        if nzero == self.dim - 1:
+            idx = iszero.index(False)
+            return (firedrake.DirichletBC(self.P1_vec.sub(idx), 0, boundary_tag),)
+
+        # Enforce no mesh movement normal to boundaries
+        u_cts = firedrake.TrialFunction(self.P1_vec)
+        v_cts = firedrake.TestFunction(self.P1_vec)
+        a_bc = ufl.dot(v_cts, n) * ufl.dot(u_cts, n) * ds
+        L_bc = ufl.dot(v_cts, n) * firedrake.Constant(0.0) * ds
+        bc1 = firedrake.EquationBC(a_bc == L_bc, self._grad_phi, boundary_tag)
+
+        # Check the current boundary segment is a straight line or plane
+        facet_indices = set(self.mesh.exterior_facets.unique_markers)
+        ffacet_indices = [
+            (tag, boundary_tag) for tag in facet_indices.difference([boundary_tag])
+        ]
+        ffacet_bc = firedrake.DirichletBC(self.P1_vec, 0, ffacet_indices)
+        ffacets = list(self.mesh.coordinates.dat.data_with_halos[ffacet_bc.nodes])
+        # TODO: Only do the following check in debugging mode (#94)
+        if self.dim == 2:
+            f = equation_of_line(*ffacets)
+        elif self.dim == 3:
+            try:
+                f = equation_of_plane(*ffacets)
+            except (AssertionError, ValueError) as exc:
+                raise ValueError(
+                    f"Could not determine a plane for boundary segment '{boundary_tag}'."
+                ) from exc
+        for x in self.mesh.coordinates.dat.data_with_halos[zero_bc.nodes]:
+            if not np.isclose(float(f(*x)), 0):
+                raise ValueError(
+                    f"Boundary segment '{boundary_tag}' is not"
+                    f" {'linear' if self.dim == 2 else 'planar'}."
+                )
+
+        # Allow tangential movement, but only up until the end of boundary segments
+        a_bc = ufl.dot(tangential(v_cts, n), tangential(u_cts, n)) * ds
+        L_bc = ufl.dot(tangential(v_cts, n), tangential(ufl.grad(self.phi_old), n)) * ds
+        bc2 = firedrake.EquationBC(
+            a_bc == L_bc, self._grad_phi, boundary_tag, bcs=ffacet_bc
+        )
+        return bc1, bc2
+
     @property
     @PETSc.Log.EventDecorator()
     def l2_projector(self):
         """
         Create a linear solver for obtaining the gradient of the potential using an
         :math:`L^2` projection.
-
-        Boundary conditions are imposed as a post-processing step.
 
         :return: the linear solver
         :rtype: :class:`~.LinearVariationalSolver`
@@ -201,46 +270,13 @@ class MongeAmpereMover_Base(PrimeMover, metaclass=abc.ABCMeta):
         L = ufl.inner(v_cts, ufl.grad(self.phi_old)) * self.dx
 
         # Enforce no movement normal to boundary
-        n = ufl.FacetNormal(self.mesh)
-        bcs = []
-        for tag in self.mesh.exterior_facets.unique_markers:
-            # TODO: Write tests for the boundary conditions block below (#79)
-            if self.fix_boundary_nodes:
-                bcs.append(firedrake.DirichletBC(self.P1_vec, 0, tag))
-                continue
-
-            # Check for axis-aligned boundaries
-            _n = [firedrake.assemble(abs(n[j]) * self.ds(tag)) for j in range(self.dim)]
-            iszero = [np.allclose(ni, 0.0) for ni in _n]
-            nzero = sum(iszero)
-            assert nzero < self.dim
-            if nzero == self.dim - 1:
-                idx = iszero.index(False)
-                bcs.append(firedrake.DirichletBC(self.P1_vec.sub(idx), 0, tag))
-                continue
-
-            # Enforce no mesh movement normal to boundaries
-            a_bc = ufl.dot(v_cts, n) * ufl.dot(u_cts, n) * self.ds
-            L_bc = ufl.dot(v_cts, n) * firedrake.Constant(0.0) * self.ds
-            bcs.append(firedrake.EquationBC(a_bc == L_bc, self._grad_phi, tag))
-
-            # Allow tangential movement, but only up until the end of boundary segments
-            a_bc = ufl.dot(tangential(v_cts, n), tangential(u_cts, n)) * self.ds
-            L_bc = (
-                ufl.dot(tangential(v_cts, n), tangential(ufl.grad(self.phi_old), n))
-                * self.ds
-            )
-            edges = set(self.mesh.exterior_facets.unique_markers)
-            if len(edges) == 0:
-                bbc = None  # Periodic case
-            else:
-                warn(
-                    "Have you checked that all straight line segments are uniquely"
-                    " tagged?"
-                )
-                corners = [(i, j) for i in edges for j in edges.difference([i])]
-                bbc = firedrake.DirichletBC(self.P1_vec, 0, corners)
-            bcs.append(firedrake.EquationBC(a_bc == L_bc, self._grad_phi, tag, bcs=bbc))
+        bcs = [
+            dirichlet_bc
+            for boundary_tag in self.mesh.exterior_facets.unique_markers
+            for dirichlet_bc in self._l2_projector_bcs(boundary_tag)
+        ]
+        if not bcs and self.fix_boundary_nodes:
+            raise ValueError("Cannot fix boundary nodes for periodic meshes.")
 
         # Create solver
         problem = firedrake.LinearVariationalProblem(a, L, self._grad_phi, bcs=bcs)
