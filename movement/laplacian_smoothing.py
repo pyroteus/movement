@@ -45,15 +45,18 @@ class LaplacianSmoother(PrimeMover):
         dim = self.mesh.topological_dimension()
         self.displacement = np.zeros((self.mesh.num_vertices(), dim))
 
+    def _create_functions(self):
+        super()._create_functions()
+        self.rhs = firedrake.Function(self.coord_space, name="Zero RHS")
+
     @PETSc.Log.EventDecorator()
     def _setup_solver(self, boundary_conditions):
         if not hasattr(self, "_solver"):
             test = firedrake.TestFunction(self.coord_space)
             trial = firedrake.TrialFunction(self.coord_space)
-            f = firedrake.Function(self.coord_space, name="Zero RHS")
 
             a = ufl.inner(ufl.grad(trial), ufl.grad(test)) * self.dx
-            L = ufl.inner(f, test) * self.dx
+            L = ufl.inner(self.rhs, test) * self.dx
             problem = firedrake.LinearVariationalProblem(
                 a, L, self.v, bcs=boundary_conditions
             )
@@ -96,3 +99,10 @@ class LaplacianSmoother(PrimeMover):
         self.displacement[:] = self.v.dat.data_with_halos * self.dt
         self.x.dat.data_with_halos[:] += self.displacement
         self.mesh.coordinates.assign(self.x)
+        self.volume.interpolate(ufl.CellVolume(self.mesh))
+        PETSc.Sys.Print(
+            f"{time:.2f} s"
+            f"   Min/Max {self.volume_ratio:10.4e}"
+            f"   Variation (σ/μ) {self.coefficient_of_variation:10.4e}"
+            f"   Displacement {np.linalg.norm(self.displacement):.2f} m"
+        )

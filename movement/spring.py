@@ -48,11 +48,20 @@ class SpringMover_Base(PrimeMover):
         super().__init__(mesh)
         assert timestep > 0.0
         self.dt = timestep
-        self.HDivTrace = firedrake.FunctionSpace(self.mesh, "HDiv Trace", 0)
-        self.HDivTrace_vec = firedrake.VectorFunctionSpace(self.mesh, "HDiv Trace", 0)
         num_vertices = mesh.num_vertices()
         self._forcing = np.zeros((num_vertices, mesh.topological_dimension()))
         self.displacement = np.zeros(num_vertices)
+
+    def _create_function_spaces(self):
+        super()._create_function_spaces()
+        self.HDivTrace = firedrake.FunctionSpace(self.mesh, "HDiv Trace", 0)
+        self.HDivTrace_vec = firedrake.VectorFunctionSpace(self.mesh, "HDiv Trace", 0)
+
+    def _create_functions(self):
+        super()._create_functions()
+        self._facet_area = ffunc.Function(self.HDivTrace)
+        self._tangents = ffunc.Function(self.HDivTrace_vec)
+        self._angles = ffunc.Function(self.HDivTrace)
 
     @property
     @PETSc.Log.EventDecorator()
@@ -65,7 +74,6 @@ class SpringMover_Base(PrimeMover):
         if not hasattr(self, "_facet_area_solver"):
             test = firedrake.TestFunction(self.HDivTrace)
             trial = firedrake.TrialFunction(self.HDivTrace)
-            self._facet_area = ffunc.Function(self.HDivTrace)
             A = ufl.FacetArea(self.mesh)
             a = trial("+") * test("+") * self.dS + trial * test * self.ds
             L = test("+") * A * self.dS + test * A * self.ds
@@ -86,7 +94,6 @@ class SpringMover_Base(PrimeMover):
         if not hasattr(self, "_tangents_solver"):
             test = firedrake.TestFunction(self.HDivTrace_vec)
             trial = firedrake.TrialFunction(self.HDivTrace_vec)
-            self._tangents = ffunc.Function(self.HDivTrace_vec)
             n = ufl.FacetNormal(self.mesh)
             s = ufl.perp(n)
             a = (
@@ -113,7 +120,6 @@ class SpringMover_Base(PrimeMover):
         if not hasattr(self, "_angles_solver"):
             test = firedrake.TestFunction(self.HDivTrace)
             trial = firedrake.TrialFunction(self.HDivTrace)
-            self._angles = ffunc.Function(self.HDivTrace)
             e0 = np.zeros(self.dim)
             e0[0] = 1.0
             X = ufl.as_vector(e0)
@@ -264,6 +270,13 @@ class SpringMover_Lineal(SpringMover_Base):
         shape = self.mesh.coordinates.dat.data_with_halos.shape
         self.mesh.coordinates.dat.data_with_halos[:] += self.displacement.reshape(shape)
         self._update_plex_coordinates()
+        self.volume.interpolate(ufl.CellVolume(self.mesh))
+        PETSc.Sys.Print(
+            f"{time:.2f}"
+            f"   Min/Max {self.volume_ratio:10.4e}"
+            f"   Variation (σ/μ) {self.coefficient_of_variation:10.4e}"
+            f"   Displacement {np.linalg.norm(self.displacement):.2f} m"
+        )
 
 
 class SpringMover_Torsional(SpringMover_Lineal):

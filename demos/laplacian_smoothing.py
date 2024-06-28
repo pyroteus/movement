@@ -141,8 +141,6 @@ for i, time in enumerate(times):
         update_boundary_velocity=update_boundary_velocity,
         boundary_conditions=boundary_conditions,
     )
-    displacement = np.linalg.norm(mover.displacement)
-    print(f"time = {time:.1f} s, displacement = {displacement:.2f} m")
 
     # Plot the current mesh, adding a time label
     ax = axes[idx // 4, idx % 4]

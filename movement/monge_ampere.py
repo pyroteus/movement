@@ -97,28 +97,24 @@ class MongeAmpereMover_Base(PrimeMover, metaclass=abc.ABCMeta):
         self.dtol = kwargs.pop("dtol", 2.0)
         self.fix_boundary_nodes = kwargs.pop("fix_boundary_nodes", False)
         super().__init__(mesh, monitor_function=monitor_function, **kwargs)
+        self.theta = firedrake.Constant(0.0)
 
-        # Create function spaces
-        self.P0 = firedrake.FunctionSpace(self.mesh, "DG", 0)
+    def _create_function_spaces(self):
+        super()._create_function_spaces()
         self.P1 = firedrake.FunctionSpace(self.mesh, "CG", 1)
         self.P1_vec = firedrake.VectorFunctionSpace(self.mesh, "CG", 1)
         self.P1_ten = firedrake.TensorFunctionSpace(self.mesh, "CG", 1)
 
-        # Create objects used during the mesh movement
-        self._create_functions()
-        self.theta = firedrake.Constant(0.0)
+    @abc.abstractmethod
+    def _create_functions(self):
+        super()._create_functions()
+        self.monitor = firedrake.Function(self.P1, name="Monitor function")
+        self._grad_phi = firedrake.Function(self.P1_vec)
+        self.grad_phi = firedrake.Function(self.mesh.coordinates)
         self.monitor.interpolate(self.monitor_function(self.mesh))
-        self.volume.interpolate(ufl.CellVolume(self.mesh))
         self.original_volume = firedrake.Function(self.volume)
         self.total_volume = firedrake.assemble(firedrake.Constant(1.0) * self.dx)
         self.L_P0 = firedrake.TestFunction(self.P0) * self.monitor * self.dx
-
-    @abc.abstractmethod
-    def _create_functions(self):
-        self.monitor = firedrake.Function(self.P1, name="Monitor function")
-        self.volume = firedrake.Function(self.P0, name="Mesh volume")
-        self._grad_phi = firedrake.Function(self.P1_vec)
-        self.grad_phi = firedrake.Function(self.mesh.coordinates)
 
     @PETSc.Log.EventDecorator()
     def apply_initial_guess(self, phi_init, sigma_init):
@@ -143,27 +139,17 @@ class MongeAmpereMover_Base(PrimeMover, metaclass=abc.ABCMeta):
             raise ValueError("Need to initialise both phi *and* sigma.")
 
     @property
-    @PETSc.Log.EventDecorator()
-    def _diagnostics(self):
+    def relative_l2_residual(self):
         """
-        Compute the following diagnostics:
-          1) the ratio of the smallest and largest element volumes;
-          2) coefficient of variation (σ/μ) of element volumes;
-          3) relative L2 norm residual.
+        :return: the relative :math:`L^2` norm residual.
+        :rtype: :class:`float`
         """
-        v = self.volume.vector().gather()
-        minmax = v.min() / v.max()
-        mean = v.sum() / v.max()
-        w = v.copy() - mean
-        w *= w
-        std = np.sqrt(w.sum() / w.size)
-        cv = std / mean
         assert hasattr(self, "_residual_l2_form")
         assert hasattr(self, "_norm_l2_form")
-        residual_l2 = firedrake.assemble(self._residual_l2_form).dat.norm
-        norm_l2 = firedrake.assemble(self._norm_l2_form).dat.norm
-        residual_l2_rel = residual_l2 / norm_l2
-        return minmax, residual_l2_rel, cv
+        return (
+            firedrake.assemble(self._residual_l2_form).dat.norm
+            / firedrake.assemble(self._norm_l2_form).dat.norm
+        )
 
     @PETSc.Log.EventDecorator()
     def _update_coordinates(self):
@@ -374,22 +360,21 @@ class MongeAmpereMover_Relaxation(MongeAmpereMover_Base):
 
             # Update monitor function
             self.monitor.interpolate(self.monitor_function(self.mesh))
-            firedrake.assemble(self.L_P0, tensor=self.volume)
-            self.volume.interpolate(self.volume / self.original_volume)
+            self.volume.interpolate(self.L_P0 / self.original_volume)
             self.mesh.coordinates.assign(self.xi)
 
             # Evaluate normalisation coefficient
             self.theta.assign(firedrake.assemble(self.theta_form) / self.total_volume)
 
             # Check convergence criteria
-            minmax, residual, cv = self._diagnostics
+            residual = self.relative_l2_residual
             if i == 0:
                 initial_norm = residual
             PETSc.Sys.Print(
                 f"{i:4d}"
-                f"   Min/Max {minmax:10.4e}"
+                f"   Min/Max {self.volume_ratio:10.4e}"
+                f"   Variation (σ/μ) {self.coefficient_of_variation:10.4e}"
                 f"   Residual {residual:10.4e}"
-                f"   Variation (σ/μ) {cv:10.4e}"
             )
             if residual < self.rtol:
                 self._convergence_message(i + 1)
@@ -535,15 +520,13 @@ class MongeAmpereMover_QuasiNewton(MongeAmpereMover_Base):
             cursol = snes.getSolution()
             update_monitor(cursol)
             self._update_coordinates()
-            firedrake.assemble(self.L_P0, tensor=self.volume)
-            self.volume.interpolate(self.volume / self.original_volume)
+            self.volume.interpolate(self.L_P0 / self.original_volume)
             self.mesh.coordinates.assign(self.xi)
-            minmax, residual, cv = self._diagnostics
             PETSc.Sys.Print(
                 f"{i:4d}"
-                f"   Min/Max {minmax:10.4e}"
-                f"   Residual {residual:10.4e}"
-                f"   Variation (σ/μ) {cv:10.4e}"
+                f"   Min/Max {self.volume_ratio:10.4e}"
+                f"   Variation (σ/μ) {self.coefficient_of_variation:10.4e}"
+                f"   Residual {self.relative_l2_residual:10.4e}"
             )
 
         self.snes = self._equidistributor.snes
