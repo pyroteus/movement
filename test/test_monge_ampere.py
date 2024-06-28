@@ -35,6 +35,13 @@ class TestMongeAmpere(unittest.TestCase):
             MongeAmpereMover(self.dummy_mesh, None)
         self.assertEqual(str(cm.exception), "Please supply a monitor function.")
 
+    def test_tangling_valueerror(self):
+        mover = MongeAmpereMover(self.mesh(2, n=3), ring_monitor)
+        mover.xi.dat.data[3] += 0.2
+        with self.assertRaises(ValueError) as cm:
+            mover.move()
+        self.assertEqual(str(cm.exception), "Mesh has 1 tangled element.")
+
     @parameterized.expand(
         [(2, "relaxation"), (2, "quasi_newton"), (3, "relaxation"), (3, "quasi_newton")]
     )

@@ -52,6 +52,13 @@ class TestExceptions(unittest.TestCase):
             mover.move(0)
         self.assertEqual(str(cm.exception), "Solver failed to converge.")
 
+    def test_tangling_valueerror(self):
+        mover = SpringMover(UnitSquareMesh(3, 3), 1.0)
+        mover.mesh.coordinates.dat.data[3] += 0.2
+        with self.assertRaises(ValueError) as cm:
+            mover.move(0)
+        self.assertEqual(str(cm.exception), "Mesh has 1 tangled element.")
+
 
 class TestStiffness(unittest.TestCase):
     """

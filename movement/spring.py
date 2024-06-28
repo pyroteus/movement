@@ -265,6 +265,9 @@ class SpringMover_Lineal(SpringMover_Base):
         self.mesh.coordinates.dat.data_with_halos[:] += self.displacement.reshape(shape)
         self._update_plex_coordinates()
 
+        if hasattr(self, "tangling_checker"):
+            self.tangling_checker.check()
+
 
 class SpringMover_Torsional(SpringMover_Lineal):
     """

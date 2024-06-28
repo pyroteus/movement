@@ -6,6 +6,8 @@ import numpy as np
 from firedrake.cython.dmcommon import create_section
 from firedrake.petsc import PETSc
 
+from movement.tangling import MeshTanglingChecker
+
 __all__ = ["PrimeMover"]
 
 
@@ -15,7 +17,12 @@ class PrimeMover:
     """
 
     def __init__(
-        self, mesh, monitor_function=None, raise_convergence_errors=True, **kwargs
+        self,
+        mesh,
+        monitor_function=None,
+        raise_convergence_errors=True,
+        tangling_check=None,
+        **kwargs,
     ):
         r"""
         :arg mesh: the physical mesh
@@ -25,7 +32,10 @@ class PrimeMover:
         :kwarg raise_convergence_errors: convergence error handling behaviour: if `True`
             then :class:`~.ConvergenceError`\s are raised, else warnings are raised and
             the program is allowed to continue
-        :kwarg raise_convergence_errors: :class:`bool`
+        :type raise_convergence_errors: :class:`bool`
+        :kwarg tangling_check: check whether the mesh has tangled elements (by default
+            on in the 2D case and off otherwise)
+        :type tangling_check: :class:`bool`
         """
         self.mesh = firedrake.Mesh(mesh.coordinates.copy(deepcopy=True))
         self.monitor_function = monitor_function
@@ -54,6 +64,14 @@ class PrimeMover:
             self.mesh.coordinates, name="Computational coordinates"
         )
         self.v = firedrake.Function(self.coord_space, name="Mesh velocity")
+
+        # Utilities
+        if tangling_check is None:
+            tangling_check = self.dim == 2
+        if tangling_check:
+            self.tangling_checker = MeshTanglingChecker(
+                self.mesh, raise_error=raise_convergence_errors
+            )
 
     def _convergence_message(self, iterations=None):
         """

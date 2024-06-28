@@ -179,6 +179,9 @@ class MongeAmpereMover_Base(PrimeMover, metaclass=abc.ABCMeta):
         self.x.assign(self.xi + self.grad_phi)
         self.mesh.coordinates.assign(self.x)
 
+        if hasattr(self, "tangling_checker"):
+            self.tangling_checker.check()
+
     @property
     @PETSc.Log.EventDecorator()
     def l2_projector(self):

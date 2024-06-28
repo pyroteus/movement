@@ -2,6 +2,7 @@ import warnings
 
 import firedrake
 import ufl
+from firedrake.__future__ import interpolate
 
 __all__ = ["MeshTanglingChecker"]
 
@@ -28,12 +29,11 @@ class MeshTanglingChecker:
         # Store initial signs of Jacobian determinant
         P0 = firedrake.FunctionSpace(mesh, "DG", 0)
         detJ = ufl.JacobianDeterminant(mesh)
-        s = firedrake.Function(P0)
-        s.interpolate(ufl.sign(detJ))
+        s = firedrake.assemble(interpolate(ufl.sign(detJ), P0))
 
         # Get scaled Jacobian expression
         P0_ten = firedrake.TensorFunctionSpace(mesh, "DG", 0)
-        J = firedrake.interpolate(ufl.Jacobian(mesh), P0_ten)
+        J = firedrake.assemble(interpolate(ufl.Jacobian(mesh), P0_ten))
         edge1 = ufl.as_vector([J[0, 0], J[1, 0]])
         edge2 = ufl.as_vector([J[0, 1], J[1, 1]])
         edge3 = edge1 - edge2
